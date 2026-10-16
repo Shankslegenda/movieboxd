@@ -1,0 +1,20 @@
+# Put the contents of movieboxd at the root of a dedicated Git repository.
+services:
+  - type: web
+    name: movieboxd-beta
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci --include=dev && npm test && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: TMDB_CACHE_PATH
+        value: /tmp/movieboxd/tmdb.sqlite
+      # Enter your API v3 key only in the Render dashboard, never in this file.
+      - key: TMDB_API_KEY
+        sync: false
