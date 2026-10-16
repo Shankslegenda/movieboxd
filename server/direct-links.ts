@@ -51,6 +51,8 @@ async function readResource(
     signal,
     headers: {
       Accept: options.json ? "application/json" : "text/html",
+      "User-Agent": "Movieboxd/0.1 (+https://movieboxd-beta.onrender.com)",
+      "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
       ...(options.body ? { "Content-Type": "application/json" } : {}),
     },
     ...(options.body ? { method: "POST", body: options.body } : {}),
@@ -77,10 +79,18 @@ async function readResource(
     );
   }
   if (!response.ok) {
-    await response.body?.cancel();
+    const reader = response.body?.getReader();
+    let preview = "";
+    try {
+      const first = await reader?.read();
+      preview = new TextDecoder().decode(first?.value?.subarray(0, 4096));
+    } finally {
+      await reader?.cancel();
+    }
+    const title = load(preview)("title").text().replace(/[^\p{L}\p{N} .:-]/gu, "").slice(0, 120);
     throw new SourceError(
       [403, 429].includes(response.status) ? "blocked" : "unavailable",
-      `http_${response.status}`,
+      `http_${response.status} host=${new URL(url).hostname} stage=${isSearchApi || new URL(url).pathname.startsWith("/search/") ? "search" : "page"} server=${response.headers.get("server") ?? "unknown"} title=${title}`,
     );
   }
   if (
