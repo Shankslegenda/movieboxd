@@ -1,0 +1,247 @@
+.person-page {
+  padding-top: 120px;
+  padding-bottom: 60px;
+  min-height: 75vh;
+}
+.person-intro {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 44px;
+  margin: 32px 0 64px;
+  align-items: start;
+}
+.person-portrait {
+  aspect-ratio: 2/3;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #1b1c21;
+}
+.person-portrait img,
+.person-photo-fallback {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.person-photo-fallback {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #282930, #141519);
+  color: #747680;
+}
+.person-photo-fallback svg {
+  width: 40%;
+  height: 40%;
+}
+.person-copy h1 {
+  font-size: clamp(32px, 4.3vw, 58px);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  margin: 12px 0 14px;
+}
+.person-project-count,
+.biography-language,
+.person-results {
+  color: #93959f;
+  font-size: 13px;
+}
+.person-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 36px;
+  margin: 24px 0;
+}
+.person-facts dt {
+  font-size: 12px;
+  color: #92949e;
+  margin-bottom: 6px;
+}
+.person-facts dd {
+  margin: 0;
+  font-size: 14px;
+  color: #e5e5e9;
+}
+.person-copy h2 {
+  font-size: 18px;
+  margin: 26px 0 12px;
+}
+.person-biography {
+  font-size: 15px;
+  line-height: 1.8;
+  white-space: pre-line;
+  color: #b8bac4;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+}
+.person-biography.expanded {
+  display: block;
+}
+.person-text-button {
+  color: #f2a0aa;
+  background: none;
+  border: 0;
+  padding: 12px 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+.person-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(130px, 1fr));
+  gap: 16px;
+  margin: 26px 0 18px;
+}
+.person-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 12px;
+  color: #b4b5bf;
+  min-width: 0;
+}
+.person-filters select,
+.person-project-search > div {
+  border: 1px solid #34353d;
+  border-radius: 9px;
+  background: #18191e;
+  color: #eee;
+  min-height: 44px;
+  padding: 0 12px;
+  width: 100%;
+  font: inherit;
+}
+.person-project-search > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.person-project-search input {
+  background: none;
+  border: 0;
+  color: #eee;
+  min-width: 0;
+  width: 100%;
+  font-size: 14px;
+  height: 42px;
+  outline: none;
+}
+.person-project-search > div:focus-within {
+  outline: 2px solid #e34158;
+  outline-offset: 2px;
+}
+.person-results {
+  margin: 18px 0;
+}
+.project-role {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #999ca7;
+  overflow-wrap: anywhere;
+  margin: 7px 0 0;
+}
+.person-load-more {
+  display: flex;
+  margin: 32px auto 0;
+}
+.person-status {
+  padding: 60px 20px;
+  text-align: center;
+  color: #a8aab4;
+}
+.person-status h1,
+.person-status h3 {
+  color: #eee;
+}
+.cast-list .actor-link {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+  border-radius: 12px;
+  padding: 8px;
+  background: #17181d;
+  transition: background 0.2s;
+}
+.cast-list .actor-link:hover {
+  background: #25262d;
+}
+.cast-list .actor-photo {
+  width: 56px;
+  height: 70px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 8px;
+}
+.cast-list .actor-photo img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+}
+.cast-list .actor-copy {
+  min-width: 0;
+}
+.cast-list .actor-copy strong {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.cast-list .actor-copy span {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.cast-expand {
+  margin-top: 20px;
+}
+.credits-section .cast-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 950px) {
+  .person-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .credits-section .cast-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .person-intro {
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 28px;
+  }
+}
+@media (max-width: 600px) {
+  .person-page {
+    padding-top: 90px;
+  }
+  .person-intro {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-top: 24px;
+    margin-bottom: 42px;
+  }
+  .person-portrait {
+    width: 150px;
+  }
+  .person-copy h1 {
+    font-size: 34px;
+  }
+  .person-facts {
+    gap: 18px;
+  }
+  .person-project-search {
+    grid-column: 1/-1;
+  }
+  .person-filters label:last-child {
+    grid-column: 1/-1;
+  }
+  .credits-section .cast-list {
+    grid-template-columns: 1fr;
+  }
+  .cast-list .actor-photo {
+    width: 48px;
+    height: 60px;
+  }
+  .person-biography {
+    font-size: 14px;
+  }
+}
