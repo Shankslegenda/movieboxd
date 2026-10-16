@@ -251,3 +251,33 @@ test("original title fallback and a series with matching first year are supporte
   assert.equal(source(r, "ifilm").status, "found");
   assert.equal(source(r, "nechego").status, "found");
 });
+
+
+test("Nechego uses its public sitemap when its search API returns a CAPTCHA", async () => {
+  const playerItem = { ...searchItem };
+  const flight = `<script>self.__next_f.push(${JSON.stringify([1, "1f:" + JSON.stringify(["$", "Component", null, { item: playerItem }]) + "\n"])})</script>`;
+  const find = createDirectFinder(mock(url => {
+    if (url.hostname === "api.nechego.pw") return new Response("<title>CrowdSec Captcha</title>", { status: 404 });
+    if (url.pathname === "/sitemap.xml") return new Response('<urlset><url><loc>https://nechego.pw/inception</loc></url><url><loc>https://evil.test/inception</loc></url><url><loc>https://nechego.pw/inception/player</loc></url></urlset>', { headers: { "content-type": "text/xml" } });
+    if (url.hostname === "nechego.pw") return html(detail("nechego") + flight);
+    return undefined;
+  }));
+  const result = source(await find(target), "nechego");
+  assert.equal(result.status, "found");
+  assert.equal(result.url, "https://nechego.pw/inception");
+});
+
+test("a sitemap URL never counts as a match without matching page and player metadata", async () => {
+  for (const item of [{ ...searchItem, year: 2020 }, { ...searchItem, players: [] }, { ...searchItem, slug: "other-film" }]) {
+    const flight = `<script>self.__next_f.push(${JSON.stringify([1, "1f:" + JSON.stringify({ item }) + "\n"])})</script>`;
+    const find = createDirectFinder(mock(url => {
+      if (url.hostname === "api.nechego.pw") return new Response("<title>CrowdSec Captcha</title>", { status: 404 });
+      if (url.pathname === "/sitemap.xml") return new Response('<urlset><url><loc>https://nechego.pw/inception</loc></url></urlset>', { headers: { "content-type": "text/xml" } });
+      if (url.hostname === "nechego.pw") return html(detail("nechego") + flight);
+      return undefined;
+    }));
+    const result = source(await find(target), "nechego");
+    assert.equal(result.status, "blocked");
+    assert.equal(result.url, null);
+  }
+});

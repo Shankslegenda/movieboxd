@@ -238,3 +238,12 @@ test("route obtains trusted TMDB metadata, validates ids and rejects adult movie
     404,
   );
 });
+
+
+test("a failed translated search still tries the original title", async () => {
+  const finder = createDirectFinder(mock(url => {
+    if (decodeURIComponent(url.pathname).endsWith("Начало")) return new Response("", { status: 503 });
+    return html(url.pathname.startsWith("/search/") ? resultHtml() : detail());
+  }));
+  assert.equal(kinogo(await finder(target)).status, "found");
+});
