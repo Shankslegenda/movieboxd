@@ -17,8 +17,8 @@ type Target = {
 };
 class SourceError extends Error {
   status: "blocked" | "unavailable";
-  constructor(status: "blocked" | "unavailable") {
-    super(status);
+  constructor(status: "blocked" | "unavailable", reason: string = status) {
+    super(reason);
     this.status = status;
   }
 }
@@ -80,6 +80,7 @@ async function readResource(
     await response.body?.cancel();
     throw new SourceError(
       [403, 429].includes(response.status) ? "blocked" : "unavailable",
+      `http_${response.status}`,
     );
   }
   if (
@@ -402,6 +403,14 @@ async function findSource(
     }
     return { ...base, status: "not_found" };
   } catch (error) {
+    // Only diagnostic codes are logged; never URLs, search bodies or credentials.
+    const cause = error instanceof Error ? error.cause : undefined;
+    const code = cause && typeof cause === "object" && "code" in cause
+      ? String(cause.code) : error instanceof Error ? error.name : "unknown";
+    console.warn(JSON.stringify({
+      event: "direct_source_failed", source: source.id,
+      reason: error instanceof SourceError ? error.message : code,
+    }));
     return {
       ...base,
       status: error instanceof SourceError ? error.status : "unavailable",
