@@ -37,7 +37,7 @@ async function readResource(
   fetcher: typeof fetch,
   signal: AbortSignal,
   redirects = 0,
-  options: { json?: boolean; maxBytes?: number; body?: string } = {},
+  options: { json?: boolean; xml?: boolean; maxBytes?: number; body?: string } = {},
 ): Promise<string> {
   const origin = new URL(url).origin;
   const isSearchApi =
@@ -50,7 +50,7 @@ async function readResource(
     redirect: "manual",
     signal,
     headers: {
-      Accept: options.json ? "application/json" : "text/html",
+      Accept: options.json ? "application/json" : options.xml ? "application/xml,text/xml" : "text/html",
       "User-Agent": "Movieboxd/0.1 (+https://movieboxd-beta.onrender.com)",
       "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
       ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -68,7 +68,7 @@ async function readResource(
       next.username ||
       next.password
     )
-      throw new SourceError("unavailable");
+      throw new SourceError("unavailable", "unsafe_redirect");
     return readResource(
       next.href,
       source,
@@ -89,14 +89,14 @@ async function readResource(
     }
     const title = load(preview)("title").text().replace(/[^\p{L}\p{N} .:-]/gu, "").slice(0, 120);
     throw new SourceError(
-      [403, 429].includes(response.status) ? "blocked" : "unavailable",
+      [403, 429].includes(response.status) || /captcha|challenge/i.test(title) ? "blocked" : "unavailable",
       `http_${response.status} host=${new URL(url).hostname} stage=${isSearchApi || new URL(url).pathname.startsWith("/search/") ? "search" : "page"} server=${response.headers.get("server") ?? "unknown"} title=${title}`,
     );
   }
   if (
-    !response.headers
-      .get("content-type")
-      ?.includes(options.json ? "application/json" : "text/html")
+    !(options.xml
+      ? /(?:application|text)\/xml/.test(response.headers.get("content-type") ?? "")
+      : response.headers.get("content-type")?.includes(options.json ? "application/json" : "text/html"))
   ) {
     await response.body?.cancel();
     throw new SourceError("unavailable");
@@ -181,6 +181,56 @@ function createIfilmCatalog(fetcher: typeof fetch) {
   };
 }
 type Candidate = { url: string; hasPlayer?: boolean };
+// Public sitemap is independent of the search API and contains only source URLs.
+// A sitemap entry alone is never enough to return a link: the page is verified below.
+function createNechegoSitemap(fetcher: typeof fetch) {
+  let cached: { urls: string[]; expires: number } | undefined;
+  let pending: Promise<string[]> | undefined;
+  return async (signal: AbortSignal): Promise<string[]> => {
+    if (cached && cached.expires > Date.now()) return cached.urls;
+    if (pending) return pending;
+    pending = (async () => {
+      const source = directSources.find(s => s.id === "nechego")!;
+      const xml = await readResource(`${source.origin}/sitemap.xml`, source, fetcher, signal, 0, { xml: true, maxBytes: 2_000_000 });
+      const $ = load(xml, { xmlMode: true });
+      if (!$("urlset").length) throw new SourceError("unavailable", "invalid_sitemap");
+      const urls = [...new Set($("url > loc").toArray().map(el => safeDirectUrl($(el).text().trim(), source.id)).filter((u): u is string => !!u))];
+      cached = { urls, expires: Date.now() + 3_600_000 };
+      return urls;
+    })();
+    try { return await pending; } finally { pending = undefined; }
+  };
+}
+function embeddedNechegoPlayer(html: string, target: Target, url: string): boolean {
+  const $ = load(html);
+  let found = false;
+  // Parse JSON from the public server-rendered document; never execute site scripts.
+  const visit = (value: unknown, depth = 0) => {
+    if (found || depth > 50 || !value || typeof value !== "object") return;
+    const item = value as Record<string, any>;
+    if (typeof item.slug === "string" && safeDirectUrl(`/${item.slug}`, "nechego") === url &&
+        typeof item.title === "string" && titleMatches(item.title, target) &&
+        String(item.year) === target.year && item.type === (target.type === "movie" ? "movie" : "series") &&
+        Array.isArray(item.players) && item.players.some((p: any) => p && typeof p.type === "string" &&
+          typeof p.url === "string" && /^(?:https:\/\/|kp:\d+$)/.test(p.url))) found = true;
+    for (const child of Object.values(item)) visit(child, depth + 1);
+  };
+  $("script").each((_, el) => {
+    const text = $(el).text();
+    const prefix = "self.__next_f.push(";
+    if (!text.startsWith(prefix)) return;
+    try {
+      const payload = JSON.parse(text.slice(prefix.length).replace(/\);?\s*$/, ""));
+      if (!Array.isArray(payload) || payload[0] !== 1 || typeof payload[1] !== "string") return;
+      for (const line of payload[1].split("\n")) {
+        const colon = line.indexOf(":");
+        if (colon < 0) continue;
+        try { visit(JSON.parse(line.slice(colon + 1))); } catch { /* Non-JSON flight records. */ }
+      }
+    } catch { /* Ignore scripts that are not plain JSON records. */ }
+  });
+  return found;
+}
 async function nechegoCandidates(
   source: Source,
   target: Target,
@@ -281,7 +331,7 @@ function matchStructuredPage(
               /^kp:\d+$/.test(e.attr("data-cvh-id") ?? "")
             );
           })
-      : candidate.hasPlayer;
+      : candidate.hasPlayer || embeddedNechegoPlayer(html, target, candidate.url);
   return hasPlayer
     ? { title: item.name, year: target.year, matchedBy: "title_year" }
     : null;
@@ -356,6 +406,7 @@ async function findSource(
   target: Target,
   fetcher: typeof fetch,
   catalog: ReturnType<typeof createIfilmCatalog>,
+  sitemap: ReturnType<typeof createNechegoSitemap>,
 ): Promise<DirectSourceResult> {
   const base = {
     sourceId: source.id,
@@ -384,33 +435,45 @@ async function findSource(
       }
       return { ...base, status: "not_found" };
     }
+    let failure: unknown;
     for (const name of target.names.slice(0, 2)) {
-      if (source.id === "nechego") {
-        for (const candidate of await nechegoCandidates(
-          source,
-          target,
-          name,
-          fetcher,
-          signal,
-        )) {
-          const detail = await readHtml(candidate.url, source, fetcher, signal);
-          const match = matchStructuredPage(detail, candidate, target, source);
-          if (match)
-            return { ...base, status: "found", url: candidate.url, ...match };
+      try {
+        if (source.id === "nechego") {
+          for (const candidate of await nechegoCandidates(source, target, name, fetcher, signal)) {
+            const detail = await readHtml(candidate.url, source, fetcher, signal);
+            const match = matchStructuredPage(detail, candidate, target, source);
+            if (match) return { ...base, status: "found", url: candidate.url, ...match };
+          }
+        } else {
+          const search = new URL(`/search/${encodeURIComponent(name)}`, source.origin);
+          const html = await readHtml(search.href, source, fetcher, signal);
+          for (const url of candidateUrls(html, source, target)) {
+            const detail = await readHtml(url, source, fetcher, signal);
+            const match = matchPage(detail, url, target, source);
+            if (match) return { ...base, status: "found", url, ...match };
+          }
         }
-        continue;
-      }
-      const search = new URL(
-        `/search/${encodeURIComponent(name)}`,
-        source.origin,
-      );
-      const html = await readHtml(search.href, source, fetcher, signal);
-      for (const url of candidateUrls(html, source, target)) {
-        const detail = await readHtml(url, source, fetcher, signal);
-        const match = matchPage(detail, url, target, source);
-        if (match) return { ...base, status: "found", url, ...match };
+      } catch (error) {
+        if (error instanceof SourceError && error.message === "unsafe_redirect") throw error;
+        failure = error;
       }
     }
+    if (failure && source.id === "nechego") {
+      // Search-service failures need not mean the independently served catalogue is down.
+      const urls = await sitemap(signal);
+      const candidates = urls.filter(url => target.names.some(name => {
+        const slug = new URL(url).pathname.slice(1).replace(/-s01$/, "").replace(new RegExp(`-${target.year}$`), "");
+        return normalize(slug) === normalize(name);
+      })).slice(0, 3);
+      for (const url of candidates) {
+        try {
+          const detail = await readHtml(url, source, fetcher, signal);
+          const match = matchStructuredPage(detail, { url }, target, source);
+          if (match) return { ...base, status: "found", url, ...match };
+        } catch (error) { failure = error; }
+      }
+    }
+    if (failure) throw failure;
     return { ...base, status: "not_found" };
   } catch (error) {
     // Only diagnostic codes are logged; never URLs, search bodies or credentials.
@@ -429,6 +492,7 @@ async function findSource(
 }
 export function createDirectFinder(fetcher: typeof fetch = fetch) {
   const catalog = createIfilmCatalog(fetcher);
+  const sitemap = createNechegoSitemap(fetcher);
   const cache = new Map<
     string,
     { expires: number; value: DirectLinksResult }
@@ -444,7 +508,7 @@ export function createDirectFinder(fetcher: typeof fetch = fetch) {
         titleId: target.id,
         mediaType: target.type,
         sources: await Promise.all(
-          directSources.map((s) => findSource(s, target, fetcher, catalog)),
+          directSources.map((s) => findSource(s, target, fetcher, catalog, sitemap)),
         ),
       };
       if (
