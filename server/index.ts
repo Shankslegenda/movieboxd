@@ -4,7 +4,7 @@ const app = buildApp({
   apiKey: process.env.TMDB_API_KEY,
   database: process.env.TMDB_CACHE_PATH || ".data/tmdb.sqlite",
   // Accept forwarding only through internal proxies on the hosting network.
-  trustHostingProxy: process.env.RENDER === "true",
+  trustHostingProxy: process.env.RENDER === "true" || process.env.TRUST_HOSTING_PROXY === "true",
 });
 try {
   const address = await app.listen({
