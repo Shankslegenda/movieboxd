@@ -25,6 +25,7 @@ jobs:
       - run: npm ci
       - run: npm run check && npm test && npm run build && npm run test:production
       - run: python3 -m unittest discover -s deploy -p 'test_*.py'
+      - run: node --test deploy/supervisor.test.mjs
       - name: Package production files only
         shell: bash
         run: |
