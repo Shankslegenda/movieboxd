@@ -13,7 +13,6 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import tarfile
@@ -95,16 +94,9 @@ def atomic_link(link, target):
 
 
 def restart(root, expected_directory):
-    pid = int((root / 'app.pid').read_text().strip())
-    if pid <= 1:
-        raise ValueError('Invalid application pid')
-    try:
-        cwd = Path(f'/proc/{pid}/cwd').resolve(strict=True)
-    except FileNotFoundError:
-        return  # alwaysdata will restart a process that already exited.
-    if cwd != expected_directory.resolve():
-        raise ValueError('Refusing to signal an unrelated process')
-    os.kill(pid, signal.SIGTERM)
+    # A shared file crosses the hosting job/web isolation boundary; PIDs do not.
+    # Only the supervisor owned by this application observes this request.
+    (root / 'restart.request').write_text(str(time.time_ns()) + '\n')
 
 
 def wait_healthy(revision, timeout=75):
