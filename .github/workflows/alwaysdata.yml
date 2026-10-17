@@ -1,0 +1,82 @@
+name: Build and publish Movieboxd
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: alwaysdata-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run check && npm test && npm run build && npm run test:production
+      - run: python3 -m unittest discover -s deploy -p 'test_*.py'
+      - name: Package production files only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release/app/deploy
+          cp -R dist server shared release/app/
+          cp package.json package-lock.json release/app/
+          cp deploy/check-release.mjs release/app/deploy/
+          cd release/app
+          npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          writeFileSync('dist/version.json', JSON.stringify({revision:process.env.GITHUB_SHA,builtAt:new Date().toISOString()}));
+          JS
+          NODE_ENV=production node deploy/check-release.mjs
+          tar -czf ../movieboxd.tar.gz dist server shared node_modules deploy package.json package-lock.json
+          cd ..
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const bytes=readFileSync('movieboxd.tar.gz');
+          const revision=process.env.GITHUB_SHA;
+          const tag=`alwaysdata-${revision}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
+          writeFileSync('movieboxd-manifest.json',JSON.stringify({schema:1,repository:process.env.GITHUB_REPOSITORY,revision,tag,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length}));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-production-release
+          path: |
+            release/movieboxd.tar.gz
+            release/movieboxd-manifest.json
+          compression-level: 0
+          retention-days: 2
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-production-release
+      - name: Publish complete release for alwaysdata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(jq -r .tag movieboxd-manifest.json)"
+          gh release create "$tag" --draft --target "$GITHUB_SHA" --title "Movieboxd ${GITHUB_SHA:0:7}" --notes "Tested build for alwaysdata. Source commit: $GITHUB_SHA"
+          gh release upload "$tag" movieboxd.tar.gz movieboxd-manifest.json
+          gh release edit "$tag" --draft=false --latest
